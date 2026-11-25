@@ -1,0 +1,61 @@
+name: Build MJ STORE PS4 PKG
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract MJ STORE build pack
+        run: |
+          test -f MJ_STORE_PS4_Build_Pack.zip
+          unzip -q MJ_STORE_PS4_Build_Pack.zip
+          test -f MJ_STORE_PS4_Build/Makefile
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make unzip curl libicu-dev clang lld
+
+      - name: Install OpenOrbis Toolchain
+        run: |
+          curl -fL --retry 3 \
+            https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/download/v0.5.4/toolchain-llvm-18.tar.gz \
+            -o oo.tar.gz
+          mkdir -p "$HOME/oo"
+          tar -xzf oo.tar.gz -C "$HOME/oo"
+          OO_ROOT="$(dirname "$(find "$HOME/oo" -name link.x -print -quit)")"
+          test -n "$OO_ROOT" && test -f "$OO_ROOT/link.x"
+          echo "OO_PS4_TOOLCHAIN=$OO_ROOT" >> "$GITHUB_ENV"
+
+      - name: Stage optional package support file
+        run: |
+          mkdir -p MJ_STORE_PS4_Build/sce_sys/about
+          RIGHT="$(find "$OO_PS4_TOOLCHAIN" -name right.sprx -print -quit)"
+          if [ -n "$RIGHT" ]; then cp "$RIGHT" MJ_STORE_PS4_Build/sce_sys/about/right.sprx; fi
+          test -s MJ_STORE_PS4_Build/sce_sys/icon0.png
+
+      - name: Build PKG
+        working-directory: MJ_STORE_PS4_Build
+        run: make
+
+      - name: Verify build outputs
+        working-directory: MJ_STORE_PS4_Build
+        run: |
+          test -s eboot.bin
+          test -s IV0000-MJST00001_00-MJSTOREAPP000000.pkg
+
+      - name: Upload PKG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MJ-STORE-PS4-PKG
+          path: |
+            MJ_STORE_PS4_Build/IV0000-MJST00001_00-MJSTOREAPP000000.pkg
+            MJ_STORE_PS4_Build/eboot.bin
+          if-no-files-found: error
+          retention-days: 30
